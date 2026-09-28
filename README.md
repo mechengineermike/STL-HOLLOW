@@ -1,3 +1,5 @@
+Use this tool at: https://mechengineermike.github.io/STL-HOLLOW/
+
 # STL HOLLOW
 
 STL HOLLOW is a simple browser-based STL hollowing tool. Load an STL, orient it as needed, choose a wall thickness, preview the hollowed shell, and export the result as an STL. Processing stays in the browser.
