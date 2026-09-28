@@ -7,7 +7,7 @@ const DEFAULT_THICKNESS = 2;
 const WELD_PRECISION = 100000;
 const state = {
   thickness: DEFAULT_THICKNESS,
-  filename: "3dbenchy_example.stl",
+  filename: "ExampleTop.stl",
   wireframe: false,
   showInner: false,
   sectionEnabled: false,
@@ -356,14 +356,14 @@ function animate() { requestAnimationFrame(animate); controls.update(); renderer
 
 async function loadDefaultModel() {
   try {
-    const response = await fetch("./3dbenchy_example.stl");
+    const response = await fetch("./ExampleTop.stl");
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const zUpToYUp = new THREE.Matrix4().makeRotationX(-Math.PI / 2);
-    setGeometry(new STLLoader().parse(await response.arrayBuffer()), "3dbenchy_example.stl", zUpToYUp);
+    setGeometry(new STLLoader().parse(await response.arrayBuffer()), "ExampleTop.stl", zUpToYUp);
   } catch (error) {
-    console.error("Could not load the bundled Benchy; using the fallback model.", error);
+    console.error("Could not load the bundled ExampleTop STL; using the fallback model.", error);
     setGeometry(makeDemoGeometry(), "demo-hollow.stl");
-    showError("The bundled Benchy could not be loaded, so STL HOLLOW opened its fallback model.");
+    showError("The bundled ExampleTop STL could not be loaded, so STL HOLLOW opened its fallback model.");
   }
 }
 
