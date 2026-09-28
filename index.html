@@ -37,6 +37,17 @@
         <div class="range-labels"><span>0.1 mm</span><span>50 mm</span></div>
         <label class="checkbox-row space-top"><input id="show-inner" type="checkbox"><span>Show inner surface only</span></label>
       </section>
+      <section>
+        <div class="section-heading"><span class="step">04</span><div><h2>Section view</h2><p>Slice the preview only</p></div></div>
+        <label class="checkbox-row"><input id="section-enabled" type="checkbox"><span>Section view active</span></label>
+        <label class="field-label space-top">Plane axis</label>
+        <div class="axis-grid" id="section-axis-grid" role="group" aria-label="Section view axis">
+          <button type="button" data-section-axis="x" class="active">X</button><button type="button" data-section-axis="y">Y</button><button type="button" data-section-axis="z">Z</button>
+        </div>
+        <div class="amount-heading"><label class="field-label" for="section-position">Plane position</label><span class="position-readout" id="section-position-label">50%</span></div>
+        <input id="section-position" type="range" min="0" max="100" value="50" step="1">
+        <div class="range-labels"><span>Min</span><span>Max</span></div>
+      </section>
       <section class="actions"><button id="reset-hollow" class="secondary" type="button">Reset</button><button id="export-button" class="primary" type="button">Export STL <span aria-hidden="true">↓</span></button></section>
       <p class="privacy">Your model never leaves this browser.</p>
     </aside>

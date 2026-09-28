@@ -5,12 +5,22 @@ import { STLExporter } from "./libs/STLExporter.js";
 
 const DEFAULT_THICKNESS = 2;
 const WELD_PRECISION = 100000;
-const state = { thickness: DEFAULT_THICKNESS, filename: "3dbenchy_example.stl", wireframe: false, showInner: false };
+const state = {
+  thickness: DEFAULT_THICKNESS,
+  filename: "3dbenchy_example.stl",
+  wireframe: false,
+  showInner: false,
+  sectionEnabled: false,
+  sectionAxis: "x",
+  sectionPosition: 50
+};
 const elements = {
   viewer: document.querySelector("#viewer"), dropZone: document.querySelector("#drop-zone"), fileInput: document.querySelector("#file-input"),
   upload: document.querySelector("#upload-button"), fileName: document.querySelector("#file-name"), triangleCount: document.querySelector("#triangle-count"),
   orientGrid: document.querySelector("#orient-grid"), thickness: document.querySelector("#thickness"), thicknessNumber: document.querySelector("#thickness-number"),
-  showInner: document.querySelector("#show-inner"), modelSize: document.querySelector("#model-size"), error: document.querySelector("#viewer-error")
+  showInner: document.querySelector("#show-inner"), sectionEnabled: document.querySelector("#section-enabled"), sectionAxisGrid: document.querySelector("#section-axis-grid"),
+  sectionPosition: document.querySelector("#section-position"), sectionPositionLabel: document.querySelector("#section-position-label"),
+  modelSize: document.querySelector("#model-size"), error: document.querySelector("#viewer-error")
 };
 
 const scene = new THREE.Scene();
@@ -21,6 +31,7 @@ camera.position.set(90, 72, 100);
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.localClippingEnabled = true;
 elements.viewer.appendChild(renderer.domElement);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
@@ -37,6 +48,7 @@ const grid = new THREE.GridHelper(500, 25, 0x485147, 0x282d28);
 grid.position.y = -20.01;
 scene.add(grid);
 
+const sectionPlane = new THREE.Plane(new THREE.Vector3(1, 0, 0), 0);
 const material = new THREE.MeshStandardMaterial({ color: 0xaeb8aa, roughness: 0.56, metalness: 0.04, side: THREE.DoubleSide });
 let mesh;
 let sourceGeometry;
@@ -103,6 +115,36 @@ function setThickness(rawValue) {
   state.thickness = THREE.MathUtils.clamp(value, 0.1, 50);
   syncThicknessInputs();
   buildHollowGeometry();
+}
+
+function setSectionPosition(rawValue) {
+  const value = Number(rawValue);
+  if (!Number.isFinite(value)) return;
+  state.sectionPosition = THREE.MathUtils.clamp(value, 0, 100);
+  elements.sectionPosition.value = state.sectionPosition;
+  updateSectionPlane();
+}
+
+function setSectionAxis(axis) {
+  if (!["x", "y", "z"].includes(axis)) return;
+  state.sectionAxis = axis;
+  elements.sectionAxisGrid.querySelectorAll("button").forEach(button => button.classList.toggle("active", button.dataset.sectionAxis === axis));
+  updateSectionPlane();
+}
+
+function updateSectionPlane() {
+  material.clippingPlanes = state.sectionEnabled ? [sectionPlane] : [];
+  material.needsUpdate = true;
+  elements.sectionPositionLabel.textContent = `${Math.round(state.sectionPosition)}%`;
+  if (!mesh?.geometry?.boundingBox) return;
+
+  const box = mesh.geometry.boundingBox;
+  const axis = state.sectionAxis;
+  const min = box.min[axis];
+  const max = box.max[axis];
+  const position = THREE.MathUtils.lerp(min, max, state.sectionPosition / 100);
+  sectionPlane.normal.set(axis === "x" ? 1 : 0, axis === "y" ? 1 : 0, axis === "z" ? 1 : 0);
+  sectionPlane.constant = -position;
 }
 
 function vertexKey(x, y, z) {
@@ -227,6 +269,7 @@ function buildHollowGeometry() {
   mesh = new THREE.Mesh(hollowGeometry, material);
   scene.add(mesh);
   updateMeasurements();
+  updateSectionPlane();
 }
 
 function updateMeasurements() {
@@ -287,6 +330,12 @@ document.querySelector("#reset-orientation").addEventListener("click", resetOrie
 elements.thickness.addEventListener("input", event => setThickness(event.target.value));
 elements.thicknessNumber.addEventListener("change", event => setThickness(event.target.value));
 elements.showInner.addEventListener("change", event => { state.showInner = event.target.checked; buildHollowGeometry(); });
+elements.sectionEnabled.addEventListener("change", event => { state.sectionEnabled = event.target.checked; updateSectionPlane(); });
+elements.sectionAxisGrid.addEventListener("click", event => {
+  const button = event.target.closest("button[data-section-axis]");
+  if (button) setSectionAxis(button.dataset.sectionAxis);
+});
+elements.sectionPosition.addEventListener("input", event => setSectionPosition(event.target.value));
 document.querySelector("#reset-hollow").addEventListener("click", () => setThickness(DEFAULT_THICKNESS));
 document.querySelector("#export-button").addEventListener("click", exportStl);
 document.querySelector("#fit-view").addEventListener("click", fitView);
