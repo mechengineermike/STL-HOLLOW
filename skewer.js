@@ -3,21 +3,14 @@ import { OrbitControls } from "./libs/OrbitControls.js";
 import { STLLoader } from "./libs/STLLoader.js";
 import { STLExporter } from "./libs/STLExporter.js";
 
-const FACE_CONFIG = {
-  top: { axis: "y", anchor: "max" },
-  bottom: { axis: "y", anchor: "min" },
-  left: { axis: "x", anchor: "min" },
-  right: { axis: "x", anchor: "max" },
-  front: { axis: "z", anchor: "max" },
-  back: { axis: "z", anchor: "min" }
-};
-const state = { face: "bottom", amount: 100, falloff: "linear", filename: "3dbenchy_example.stl", wireframe: false };
+const DEFAULT_THICKNESS = 2;
+const WELD_PRECISION = 100000;
+const state = { thickness: DEFAULT_THICKNESS, filename: "3dbenchy_example.stl", wireframe: false, showInner: false };
 const elements = {
   viewer: document.querySelector("#viewer"), dropZone: document.querySelector("#drop-zone"), fileInput: document.querySelector("#file-input"),
   upload: document.querySelector("#upload-button"), fileName: document.querySelector("#file-name"), triangleCount: document.querySelector("#triangle-count"),
-  orientGrid: document.querySelector("#orient-grid"), faceGrid: document.querySelector("#face-grid"), amount: document.querySelector("#amount"),
-  amountNumber: document.querySelector("#amount-number"), falloff: document.querySelector("#falloff"), modelSize: document.querySelector("#model-size"),
-  error: document.querySelector("#viewer-error")
+  orientGrid: document.querySelector("#orient-grid"), thickness: document.querySelector("#thickness"), thicknessNumber: document.querySelector("#thickness-number"),
+  showInner: document.querySelector("#show-inner"), modelSize: document.querySelector("#model-size"), error: document.querySelector("#viewer-error")
 };
 
 const scene = new THREE.Scene();
@@ -44,11 +37,11 @@ const grid = new THREE.GridHelper(500, 25, 0x485147, 0x282d28);
 grid.position.y = -20.01;
 scene.add(grid);
 
-const material = new THREE.MeshStandardMaterial({ color: 0xaeb8aa, roughness: 0.56, metalness: 0.04 });
+const material = new THREE.MeshStandardMaterial({ color: 0xaeb8aa, roughness: 0.56, metalness: 0.04, side: THREE.DoubleSide });
 let mesh;
 let sourceGeometry;
 let originalGeometry;
-let originalBounds;
+let hollowGeometry;
 const orientation = new THREE.Matrix4();
 const baseOrientation = new THREE.Matrix4();
 
@@ -80,12 +73,7 @@ function rebuildOrientedGeometry(refit = false) {
   geometry.computeVertexNormals();
   originalGeometry?.dispose();
   originalGeometry = geometry.clone();
-  originalGeometry.computeBoundingBox();
-  originalBounds = originalGeometry.boundingBox.clone();
-  if (mesh) { scene.remove(mesh); mesh.geometry.dispose(); }
-  mesh = new THREE.Mesh(geometry, material);
-  scene.add(mesh);
-  applySkew();
+  buildHollowGeometry();
   if (refit) fitView();
 }
 
@@ -104,53 +92,147 @@ function resetOrientation() {
   rebuildOrientedGeometry(true);
 }
 
-function eased(t) {
-  if (state.falloff === "ease-in") return t * t;
-  if (state.falloff === "ease-out") return 1 - (1 - t) * (1 - t);
-  if (state.falloff === "smooth") return t * t * (3 - 2 * t);
-  return t;
+function syncThicknessInputs() {
+  elements.thickness.value = state.thickness;
+  elements.thicknessNumber.value = state.thickness;
 }
 
-function applySkew() {
-  if (!mesh || !originalGeometry) return;
-  const config = FACE_CONFIG[state.face];
-  const position = mesh.geometry.attributes.position;
-  const source = originalGeometry.attributes.position;
-  const min = originalBounds.min[config.axis];
-  const max = originalBounds.max[config.axis];
-  const span = max - min || 1;
-  const center = originalBounds.getCenter(new THREE.Vector3());
-  for (let i = 0; i < position.count; i += 1) {
-    const x = source.getX(i), y = source.getY(i), z = source.getZ(i);
-    const coordinate = config.axis === "x" ? x : config.axis === "y" ? y : z;
-    const linearT = config.anchor === "min" ? (coordinate - min) / span : (max - coordinate) / span;
-    const scale = THREE.MathUtils.lerp(1, state.amount / 100, eased(THREE.MathUtils.clamp(linearT, 0, 1)));
-    position.setXYZ(
-      i,
-      config.axis === "x" ? x : center.x + (x - center.x) * scale,
-      config.axis === "y" ? y : center.y + (y - center.y) * scale,
-      config.axis === "z" ? z : center.z + (z - center.z) * scale
-    );
+function setThickness(rawValue) {
+  const value = Number(rawValue);
+  if (!Number.isFinite(value)) return;
+  state.thickness = THREE.MathUtils.clamp(value, 0.1, 50);
+  syncThicknessInputs();
+  buildHollowGeometry();
+}
+
+function vertexKey(x, y, z) {
+  return `${Math.round(x * WELD_PRECISION)},${Math.round(y * WELD_PRECISION)},${Math.round(z * WELD_PRECISION)}`;
+}
+
+function readMeshTopology(geometry) {
+  const source = geometry.attributes.position;
+  const vertices = [];
+  const faces = [];
+  const lookup = new Map();
+  const center = new THREE.Box3().setFromBufferAttribute(source).getCenter(new THREE.Vector3());
+  let signedVolume = 0;
+
+  for (let i = 0; i < source.count; i += 3) {
+    const indices = [];
+    for (let j = 0; j < 3; j += 1) {
+      const x = source.getX(i + j), y = source.getY(i + j), z = source.getZ(i + j);
+      const key = vertexKey(x, y, z);
+      let index = lookup.get(key);
+      if (index === undefined) {
+        index = vertices.length;
+        lookup.set(key, index);
+        vertices.push(new THREE.Vector3(x, y, z));
+      }
+      indices.push(index);
+    }
+    const a = vertices[indices[0]], b = vertices[indices[1]], c = vertices[indices[2]];
+    const normal = new THREE.Vector3().subVectors(b, a).cross(new THREE.Vector3().subVectors(c, a));
+    if (normal.lengthSq() < 1e-16) continue;
+    normal.normalize();
+    faces.push({ indices, normal });
+    signedVolume += a.dot(new THREE.Vector3().crossVectors(b, c)) / 6;
   }
-  position.needsUpdate = true;
-  mesh.geometry.computeVertexNormals();
-  mesh.geometry.computeBoundingBox();
-  mesh.geometry.computeBoundingSphere();
+
+  if (signedVolume < 0) faces.forEach(face => face.normal.negate());
+  const incidentFaces = Array.from({ length: vertices.length }, () => []);
+  faces.forEach((face, faceIndex) => face.indices.forEach(index => incidentFaces[index].push(faceIndex)));
+  return { vertices, faces, incidentFaces, center };
+}
+
+function solveSymmetric3(matrix, vector) {
+  const [a, b, c, d, e, f] = matrix;
+  const [x, y, z] = vector;
+  const det = a * (d * f - e * e) - b * (b * f - c * e) + c * (b * e - c * d);
+  if (Math.abs(det) < 1e-10) return null;
+  return new THREE.Vector3(
+    ((d * f - e * e) * x + (c * e - b * f) * y + (b * e - c * d) * z) / det,
+    ((c * e - b * f) * x + (a * f - c * c) * y + (b * c - a * e) * z) / det,
+    ((b * e - c * d) * x + (b * c - a * e) * y + (a * d - b * b) * z) / det
+  );
+}
+
+function projectToOffsetPlanes(vertex, planes) {
+  const point = vertex.clone();
+  for (let pass = 0; pass < 12; pass += 1) {
+    for (const { normal, target } of planes) {
+      point.addScaledVector(normal, target - normal.dot(point));
+    }
+  }
+  return point;
+}
+
+function offsetInnerVertices(topology, thickness) {
+  return topology.vertices.map((vertex, vertexIndex) => {
+    const matrix = [0, 0, 0, 0, 0, 0];
+    const vector = [0, 0, 0];
+    const planes = [];
+
+    for (const faceIndex of topology.incidentFaces[vertexIndex]) {
+      const normal = topology.faces[faceIndex].normal;
+      const target = normal.dot(vertex) - thickness;
+      planes.push({ normal, target });
+      matrix[0] += normal.x * normal.x;
+      matrix[1] += normal.x * normal.y;
+      matrix[2] += normal.x * normal.z;
+      matrix[3] += normal.y * normal.y;
+      matrix[4] += normal.y * normal.z;
+      matrix[5] += normal.z * normal.z;
+      vector[0] += normal.x * target;
+      vector[1] += normal.y * target;
+      vector[2] += normal.z * target;
+    }
+
+    const solved = solveSymmetric3(matrix, vector);
+    if (solved) return solved;
+    if (planes.length) return projectToOffsetPlanes(vertex, planes);
+    return vertex.clone().lerp(topology.center, thickness / Math.max(vertex.distanceTo(topology.center), thickness));
+  });
+}
+
+function buildShellGeometry(outerGeometry, thickness, showInnerOnly = false) {
+  const topology = readMeshTopology(outerGeometry);
+  const innerVertices = offsetInnerVertices(topology, thickness);
+  const values = [];
+
+  for (const face of topology.faces) {
+    const [a, b, c] = face.indices;
+    if (!showInnerOnly) {
+      values.push(...topology.vertices[a].toArray(), ...topology.vertices[b].toArray(), ...topology.vertices[c].toArray());
+    }
+    values.push(...innerVertices[c].toArray(), ...innerVertices[b].toArray(), ...innerVertices[a].toArray());
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute(values, 3));
+  geometry.computeVertexNormals();
+  geometry.computeBoundingBox();
+  geometry.computeBoundingSphere();
+  return geometry;
+}
+
+function buildHollowGeometry() {
+  if (!originalGeometry) return;
+  const nextGeometry = buildShellGeometry(originalGeometry, state.thickness, state.showInner);
+  hollowGeometry?.dispose();
+  hollowGeometry = nextGeometry;
+  if (mesh) {
+    scene.remove(mesh);
+    mesh.geometry.dispose();
+  }
+  mesh = new THREE.Mesh(hollowGeometry, material);
+  scene.add(mesh);
   updateMeasurements();
 }
 
 function updateMeasurements() {
+  if (!mesh?.geometry?.boundingBox) return;
   const size = mesh.geometry.boundingBox.getSize(new THREE.Vector3());
   elements.modelSize.textContent = `${size.x.toFixed(1)} × ${size.y.toFixed(1)} × ${size.z.toFixed(1)} mm`;
-}
-
-function syncAmountInputs() { elements.amount.value = state.amount; elements.amountNumber.value = state.amount; }
-function setAmount(rawValue) {
-  const value = Number(rawValue);
-  if (!Number.isFinite(value)) return;
-  state.amount = THREE.MathUtils.clamp(value, 5, 300);
-  syncAmountInputs();
-  applySkew();
 }
 
 function fitView() {
@@ -180,11 +262,14 @@ async function loadFile(file) {
 
 function exportStl() {
   if (!mesh) return;
-  const data = new STLExporter().parse(mesh, { binary: true });
+  const exportGeometry = state.showInner ? buildShellGeometry(originalGeometry, state.thickness, false) : hollowGeometry;
+  const exportMesh = state.showInner ? new THREE.Mesh(exportGeometry, material) : mesh;
+  const data = new STLExporter().parse(exportMesh, { binary: true });
+  if (state.showInner) exportGeometry.dispose();
   const url = URL.createObjectURL(new Blob([data], { type: "model/stl" }));
   const link = document.createElement("a");
   link.href = url;
-  link.download = `${state.filename.replace(/\.stl$/i, "")}-askew.stl`;
+  link.download = `${state.filename.replace(/\.stl$/i, "")}-hollow.stl`;
   link.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
@@ -199,17 +284,10 @@ elements.orientGrid.addEventListener("click", event => {
   if (button) rotateModel(button.dataset.rotate);
 });
 document.querySelector("#reset-orientation").addEventListener("click", resetOrientation);
-elements.faceGrid.addEventListener("click", event => {
-  const button = event.target.closest("button[data-face]");
-  if (!button) return;
-  state.face = button.dataset.face;
-  elements.faceGrid.querySelectorAll("button").forEach(item => item.classList.toggle("active", item === button));
-  applySkew();
-});
-elements.amount.addEventListener("input", event => setAmount(event.target.value));
-elements.amountNumber.addEventListener("change", event => setAmount(event.target.value));
-elements.falloff.addEventListener("change", event => { state.falloff = event.target.value; applySkew(); });
-document.querySelector("#reset-skew").addEventListener("click", () => setAmount(100));
+elements.thickness.addEventListener("input", event => setThickness(event.target.value));
+elements.thicknessNumber.addEventListener("change", event => setThickness(event.target.value));
+elements.showInner.addEventListener("change", event => { state.showInner = event.target.checked; buildHollowGeometry(); });
+document.querySelector("#reset-hollow").addEventListener("click", () => setThickness(DEFAULT_THICKNESS));
 document.querySelector("#export-button").addEventListener("click", exportStl);
 document.querySelector("#fit-view").addEventListener("click", fitView);
 document.querySelector("#toggle-wireframe").addEventListener("click", event => { state.wireframe = !state.wireframe; material.wireframe = state.wireframe; event.currentTarget.classList.toggle("active", state.wireframe); });
@@ -235,11 +313,12 @@ async function loadDefaultModel() {
     setGeometry(new STLLoader().parse(await response.arrayBuffer()), "3dbenchy_example.stl", zUpToYUp);
   } catch (error) {
     console.error("Could not load the bundled Benchy; using the fallback model.", error);
-    setGeometry(makeDemoGeometry(), "demo-taper.stl");
-    showError("The bundled Benchy could not be loaded, so ASKEW opened its fallback model.");
+    setGeometry(makeDemoGeometry(), "demo-hollow.stl");
+    showError("The bundled Benchy could not be loaded, so STL HOLLOW opened its fallback model.");
   }
 }
 
+syncThicknessInputs();
 resize();
 animate();
 loadDefaultModel();

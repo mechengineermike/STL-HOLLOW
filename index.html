@@ -3,20 +3,20 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Skew STL models in your browser and export them for 3D printing.">
+  <meta name="description" content="Hollow STL models in your browser and export them for 3D printing.">
   <meta name="theme-color" content="#141714">
-  <title>ASKEW - STL Skew Tool</title>
+  <title>STL HOLLOW - STL Hollowing Tool</title>
   <link rel="stylesheet" href="styles.css">
   <script type="importmap">{ "imports": { "three": "./libs/three.module.js" } }</script>
 </head>
 <body>
   <header class="topbar">
-    <a class="brand" href="./" aria-label="ASKEW home"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span><span>ASKEW</span></a>
-    <p>STL skew tool</p>
-    <a class="github-link" href="https://github.com/mechengineermike/STL-ASKEW" target="_blank" rel="noreferrer">GitHub <span aria-hidden="true">↗</span></a>
+    <a class="brand" href="./" aria-label="STL HOLLOW home"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span><span>STL HOLLOW</span></a>
+    <p>STL hollowing tool</p>
+    <a class="github-link" href="https://github.com/mechengineermike/STL-HOLLOW" target="_blank" rel="noreferrer">GitHub <span aria-hidden="true">↗</span></a>
   </header>
   <main class="workspace">
-    <aside class="panel" aria-label="Skew controls">
+    <aside class="panel" aria-label="Hollowing controls">
       <section class="file-section">
         <div class="section-heading"><span class="step">01</span><div><h1>Choose a model</h1><p>Binary or ASCII STL</p></div></div>
         <input id="file-input" type="file" accept=".stl,model/stl" hidden>
@@ -31,26 +31,18 @@
         <button id="reset-orientation" class="reset-orientation" type="button">Reset orientation</button>
       </section>
       <section>
-        <div class="section-heading"><span class="step">03</span><div><h2>Anchor a face</h2><p>This side stays put</p></div></div>
-        <div class="face-grid" id="face-grid" role="group" aria-label="Anchored face">
-          <button type="button" data-face="top">Top</button><button type="button" data-face="bottom" class="active">Bottom</button><button type="button" data-face="left">Left</button>
-          <button type="button" data-face="right">Right</button><button type="button" data-face="front">Front</button><button type="button" data-face="back">Back</button>
-        </div>
+        <div class="section-heading"><span class="step">03</span><div><h2>Set wall thickness</h2><p>Offset inward from every surface</p></div></div>
+        <div class="amount-heading"><label class="field-label" for="thickness">Wall thickness</label><div class="number-wrap"><input id="thickness-number" type="number" value="2" min="0.1" max="50" step="0.1"><span>mm</span></div></div>
+        <input id="thickness" type="range" min="0.1" max="50" value="2" step="0.1">
+        <div class="range-labels"><span>0.1 mm</span><span>50 mm</span></div>
+        <label class="checkbox-row space-top"><input id="show-inner" type="checkbox"><span>Show inner surface only</span></label>
       </section>
-      <section>
-        <div class="section-heading"><span class="step">04</span><div><h2>Resize the opposite face</h2><p>Scale from the anchored side</p></div></div>
-        <div class="amount-heading"><label class="field-label" for="amount">Face size</label><div class="number-wrap"><input id="amount-number" type="number" value="100" min="5" max="300" step="1"><span>%</span></div></div>
-        <input id="amount" type="range" min="5" max="300" value="100" step="1">
-        <div class="range-labels"><span>5%</span><span>100%</span><span>300%</span></div>
-        <label class="field-label space-top" for="falloff">Transition</label>
-        <select id="falloff"><option value="linear">Linear</option><option value="ease-in">Ease in</option><option value="ease-out">Ease out</option><option value="smooth">Smooth</option></select>
-      </section>
-      <section class="actions"><button id="reset-skew" class="secondary" type="button">Reset skew</button><button id="export-button" class="primary" type="button">Export STL <span aria-hidden="true">↓</span></button></section>
+      <section class="actions"><button id="reset-hollow" class="secondary" type="button">Reset</button><button id="export-button" class="primary" type="button">Export STL <span aria-hidden="true">↓</span></button></section>
       <p class="privacy">Your model never leaves this browser.</p>
     </aside>
     <section class="viewer-shell" id="drop-zone" aria-label="3D model viewer">
       <div id="viewer"></div>
-      <div class="viewer-toolbar" aria-label="View controls"><button id="fit-view" type="button" title="Fit model in view" aria-label="Fit model in view">⌗</button><button id="toggle-wireframe" type="button" title="Toggle wireframe" aria-label="Toggle wireframe">◇</button></div>
+      <div class="viewer-toolbar" aria-label="View controls"><button id="fit-view" type="button" title="Fit model in view" aria-label="Fit model in view">⌖</button><button id="toggle-wireframe" type="button" title="Toggle wireframe" aria-label="Toggle wireframe">◇</button></div>
       <div class="axis-key" aria-hidden="true"><span class="x">X</span><span class="y">Y</span><span class="z">Z</span></div>
       <div class="model-size" id="model-size">40.0 × 40.0 × 40.0 mm</div>
       <div class="drop-overlay"><strong>Drop STL to open</strong></div><div class="viewer-error" id="viewer-error" role="alert"></div>
@@ -60,13 +52,13 @@
     window.addEventListener("error", function (event) {
       var notice = document.querySelector("#viewer-error");
       if (!notice) return;
-      notice.textContent = "ASKEW could not start: " + (event.message || "browser module error");
+      notice.textContent = "STL HOLLOW could not start: " + (event.message || "browser module error");
       notice.classList.add("visible");
     });
     window.addEventListener("unhandledrejection", function (event) {
       var notice = document.querySelector("#viewer-error");
       if (!notice) return;
-      notice.textContent = "ASKEW could not start: " + (event.reason && event.reason.message || event.reason || "unknown error");
+      notice.textContent = "STL HOLLOW could not start: " + (event.reason && event.reason.message || event.reason || "unknown error");
       notice.classList.add("visible");
     });
   </script>

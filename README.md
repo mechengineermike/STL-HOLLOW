@@ -1,13 +1,16 @@
-Use this tool at: https://mechengineermike.github.io/STL-ASKEW/
+# STL HOLLOW
 
-# STL ASKEW
+STL HOLLOW is a simple browser-based STL hollowing tool. Load an STL, orient it as needed, choose a wall thickness, preview the hollowed shell, and export the result as an STL. Processing stays in the browser.
 
-This is a simple browser-based asymmetric STL scaling tool. Load an STL, orient it & anchor one face, resize the opposite face, and export the result as an STL. Processing stays in the browser.
+## How the hollowing works
 
-## How the transform works
+STL files are triangle surfaces, so the tool builds a second inward surface and exports both surfaces together:
 
-The selected face is the fixed plane and remains at 100% of its original size. Each cross-section is scaled in the two axes parallel to that face, reaching the selected percentage at the opposite side. Linear, ease-in, ease-out, and smooth transitions change how the scaling is distributed through the part.
+1. Duplicate STL vertices are welded into a mesh topology.
+2. Each triangle contributes an inward offset plane at the selected wall thickness.
+3. Each inner vertex is solved from its neighboring offset planes.
+4. The original outer triangles and reversed inner triangles are exported as one STL.
 
-Model orientation is part of the exported geometry. Rotate around X, Y, or Z before choosing an anchor face; **Reset orientation** returns to the pose stored in the uploaded STL.
+This gives consistent wall thickness across flat regions and sharp corners more reliably than simply moving vertices along averaged normals. Very thin sections, non-watertight meshes, self-intersecting models, or a wall thickness larger than the local feature size can still create invalid or intersecting inner surfaces.
 
-STL files do not store units; ASKEW displays dimensions as millimeters because that is the common convention in 3D-printing workflows.
+STL files do not store units; STL HOLLOW displays dimensions as millimeters because that is the common convention in 3D-printing workflows.
